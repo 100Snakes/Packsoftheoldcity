@@ -1,0 +1,9 @@
+{
+  "name": "city-of-shadows",
+  "version": "1.0.0",
+  "description": "City of Shadows - Login Page",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  }
+}
