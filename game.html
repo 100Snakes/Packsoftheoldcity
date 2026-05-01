@@ -58,28 +58,10 @@
       text-align: center;
     }
     #countdown-sub { font-size: 0.85rem; color: #666; letter-spacing: 2px; text-align: center; }
-    #countdown-num {
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 6rem; color: #fff;
-      text-shadow: 0 0 40px rgba(245,166,35,0.5);
-      line-height: 1;
-    }
     #heli-anim { font-size: 3rem; animation: heli-fly 1s ease-in-out infinite alternate; }
     @keyframes heli-fly {
       from { transform: translateX(-20px) rotate(-5deg); }
       to   { transform: translateX(20px) rotate(5deg); }
-    }
-    #countdown-bar-wrap {
-      width: 280px; height: 6px; background: #222; border-radius: 3px; overflow: hidden;
-    }
-    #countdown-bar { height: 100%; background: linear-gradient(90deg,#f5a623,#e8453c); border-radius: 3px; transition: width 1s linear; }
-
-    /* ── LEAVING SCREEN ── */
-    #leaving-screen {
-      position: fixed; inset: 0; z-index: 99;
-      background: rgba(0,0,0,0.92);
-      display: none; flex-direction: column;
-      align-items: center; justify-content: center; gap: 20px;
     }
     #leaving-screen.show { display: flex; }
     #leaving-msg {
@@ -186,8 +168,8 @@
 <div id="countdown-screen">
   <div id="heli-anim">🚁</div>
   <div id="countdown-msg">Landing in the City of Shadows...</div>
-  <div id="countdown-num">30</div>
-  <div id="countdown-bar-wrap"><div id="countdown-bar" style="width:100%"></div></div>
+
+
   <div id="countdown-sub">Helicopter descending to Old Mall helipad</div>
 </div>
 
@@ -204,7 +186,7 @@
     <div id="map-title">🗺️ City of Shadows</div>
     <div id="map-hint">Press M to close • Explore to reveal</div>
     <button id="map-close" onclick="toggleMap()">✕</button>
-    <canvas id="fog-canvas" width="440" height="320"></canvas>
+    <canvas id="fog-canvas" width="700" height="520"></canvas>
   </div>
 </div>
 
@@ -289,7 +271,7 @@ const SPAWN_X=(helipad.x+2)*TILE, SPAWN_Y=(helipad.y+2)*TILE;
 // FOG OF WAR - tracks explored tiles
 const FOG_W=Math.ceil(WORLD_W/2), FOG_H=Math.ceil(WORLD_H/2);
 const explored=new Uint8Array(FOG_W*FOG_H);
-const FOG_MAP_W=440, FOG_MAP_H=320;
+const FOG_MAP_W=700, FOG_MAP_H=520;
 const fScaleX=FOG_MAP_W/PX_W, fScaleY=FOG_MAP_H/PX_H;
 let fogDirty=true;
 
@@ -543,19 +525,11 @@ function startLanding(){
   document.getElementById('landing').style.display='none';
   const cd=document.getElementById('countdown-screen');
   cd.classList.add('show');
-  let t=30;
-  document.getElementById('countdown-num').textContent=t;
-  document.getElementById('countdown-bar').style.width='100%';
-  const iv=setInterval(()=>{
-    t--;
-    document.getElementById('countdown-num').textContent=t;
-    document.getElementById('countdown-bar').style.width=(t/30*100)+'%';
-    if(t<=0){
-      clearInterval(iv);
-      cd.classList.remove('show');
-      startGame();
-    }
-  },1000);
+  // 5 second wait, no countdown shown, can't move
+  setTimeout(()=>{
+    cd.classList.remove('show');
+    startGame();
+  }, 5000);
 }
 
 function startGame(){
@@ -588,28 +562,21 @@ function isAtHelipad(){
 function callHelicopter(){
   if(heliCalled)return;
   heliCalled=true;
-  heliCountdown=30;
   const btn=document.getElementById("leave-btn");
-  const status=document.getElementById("heli-status");
   btn.disabled=true;
-  btn.textContent="🚁 Helicopter called...";
-  status.style.display="block";
-  status.textContent="Arriving in 30s...";
-  heliTimer=setInterval(()=>{
-    heliCountdown--;
-    status.textContent="Arriving in "+heliCountdown+"s...";
-    if(heliCountdown<=0){
-      clearInterval(heliTimer);
-      if(isAtHelipad())leaveCity();
-      else{
-        heliCalled=false;
-        btn.disabled=false;
-        btn.textContent="🚁 Call Helicopter";
-        status.style.display="none";
-        showToast("⚠️ You left the helipad! Helicopter left without you.");
-      }
+  btn.textContent="🚁 On the way...";
+  showToast("🚁 Helicopter called! It will arrive in 30 seconds.");
+  // Player can still move — 30s wait
+  setTimeout(()=>{
+    heliCalled=false;
+    btn.disabled=false;
+    btn.textContent="🚁 Call Helicopter";
+    if(isAtHelipad()){
+      leaveCity();
+    } else {
+      showToast("⚠️ Helicopter arrived but you weren't at the helipad!");
     }
-  },1000);
+  }, 30000);
 }
 
 function leaveCity(){
