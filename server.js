@@ -5,11 +5,13 @@ const path = require('path');
 const PORT = process.env.PORT || 3000;
 
 const server = http.createServer((req, res) => {
-  const filePath = path.join(__dirname, 'index.html');
+  let file = 'index.html';
+  if (req.url === '/map' || req.url === '/map.html') file = 'map.html';
+  const filePath = path.join(__dirname, file);
   fs.readFile(filePath, (err, data) => {
     if (err) {
-      res.writeHead(500);
-      res.end('Error loading page');
+      res.writeHead(404);
+      res.end('Page not found');
       return;
     }
     res.writeHead(200, { 'Content-Type': 'text/html' });
@@ -17,6 +19,6 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`City of Shadows running on port ${PORT}`);
 });
