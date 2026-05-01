@@ -390,7 +390,7 @@
         const data = await res.json();
         if (data.success) {
           showMsg('✅ ' + data.message, 'success');
-          setTimeout(() => window.location.href = '/map', 1500);
+          setTimeout(() => window.location.href = '/game', 1500);
         } else {
           showMsg('⚠️ ' + data.error, 'error');
         }
@@ -418,7 +418,7 @@
         const data = await res.json();
         if (data.success) {
           showMsg('🎉 ' + data.message, 'success');
-          setTimeout(() => window.location.href = '/map', 1500);
+          setTimeout(() => window.location.href = '/game', 1500);
         } else {
           showMsg('⚠️ ' + data.error, 'error');
         }

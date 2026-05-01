@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>City of Shadows — Play</title>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Nunito:wght@400;700;800&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #000; overflow: hidden; font-family: 'Nunito', sans-serif; }
+    canvas { display: block; }
+
+    #ui {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      pointer-events: none; z-index: 10;
+    }
+
+    #topbar {
+      position: absolute; top: 0; left: 0; right: 0;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 20px;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);
+    }
+    #game-title {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 1.4rem; letter-spacing: 3px;
+      background: linear-gradient(90deg, #f5a623, #e8453c);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    #location-name {
+      font-size: 0.8rem; color: #aaa; letter-spacing: 2px; text-transform: uppercase;
+    }
+
+    #hud-bottom {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      display: flex; align-items: flex-end; justify-content: space-between;
+      padding: 16px 20px;
+      background: linear-gradient(to top, rgba(0,0,0,0.8), transparent);
+    }
+
+    #controls-hint {
+      font-size: 0.72rem; color: #666; letter-spacing: 1px;
+    }
+    #controls-hint span { color: #f5a623; font-weight: 700; }
+
+    #minimap-wrap {
+      position: absolute; bottom: 16px; right: 20px;
+      border: 1px solid #333; border-radius: 6px; overflow: hidden;
+      pointer-events: none;
+    }
+    #minimap { display: block; }
+
+    #location-banner {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      font-family: 'Bebas Neue', sans-serif; font-size: 2rem; letter-spacing: 4px;
+      color: #f5a623; text-shadow: 0 0 20px rgba(245,166,35,0.5);
+      opacity: 0; transition: opacity 0.5s;
+      pointer-events: none; text-align: center;
+    }
+
+    #pack-toast {
+      position: absolute; top: 70px; left: 50%; transform: translateX(-50%);
+      background: rgba(20,20,35,0.95); border: 1px solid #f5a623;
+      border-radius: 10px; padding: 8px 20px;
+      font-size: 0.85rem; color: #f5a623; font-weight: 700;
+      opacity: 0; transition: opacity 0.4s; white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="ui">
+  <div id="topbar">
+    <div id="game-title">🌆 City of Shadows</div>
+    <div id="location-name">Outside — City Streets</div>
+  </div>
+
+  <div id="location-banner" id="location-banner"></div>
+  <div id="pack-toast"></div>
+
+  <div id="minimap-wrap">
+    <canvas id="minimap" width="110" height="80"></canvas>
+  </div>
+
+  <div id="hud-bottom">
+    <div id="controls-hint">
+      <span>W A S D</span> — Move &nbsp;|&nbsp; Walk near buildings to enter
+    </div>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const mini = document.getElementById('minimap');
+const mctx = mini.getContext('2d');
+
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+// ── WORLD ──────────────────────────────────────────────────────
+const TILE = 32;
+const WORLD_W = 120;
+const WORLD_H = 90;
+const PX_W = WORLD_W * TILE;
+const PX_H = WORLD_H * TILE;
+
+// Tile types
+const T_ROAD   = 0;
+const T_SIDE   = 1;
+const T_GRASS  = 2;
+const T_WALL   = 3;
+const T_DOOR   = 4;
+const T_WATER  = 5;
+const T_GRAVEL = 6;
+
+const COLORS = {
+  [T_ROAD]:   '#1a1a1a',
+  [T_SIDE]:   '#2a2520',
+  [T_GRASS]:  '#0d1a0d',
+  [T_WALL]:   '#2a2a3a',
+  [T_DOOR]:   '#8b6914',
+  [T_WATER]:  '#0a1a2a',
+  [T_GRAVEL]: '#1e1e18',
+};
+
+const BLOCK_COLORS = [
+  '#2a2535','#252530','#1e2030','#2d2535',
+  '#1a2228','#252020','#2a2020','#202025',
+];
+
+// Build world grid
+const grid = [];
+for (let y = 0; y < WORLD_H; y++) {
+  grid[y] = [];
+  for (let x = 0; x < WORLD_W; x++) {
+    // Default sidewalk
+    grid[y][x] = T_SIDE;
+  }
+}
+
+// Paint roads (main grid)
+const roadCols = [0,1,20,21,40,41,60,61,80,81,100,101,118,119];
+const roadRows = [0,1,16,17,34,35,52,53,70,71,88,89];
+
+for (let y = 0; y < WORLD_H; y++) {
+  for (let x = 0; x < WORLD_W; x++) {
+    if (roadCols.includes(x) || roadRows.includes(y)) grid[y][x] = T_ROAD;
+  }
+}
+
+// Paint water (bottom strip)
+for (let y = 80; y < WORLD_H; y++)
+  for (let x = 0; x < WORLD_W; x++)
+    grid[y][x] = T_WATER;
+
+for (let y = 78; y < 80; y++)
+  for (let x = 0; x < WORLD_W; x++)
+    grid[y][x] = T_GRAVEL;
+
+// Buildings definition
+const buildings = [
+  // [gridX, gridY, gridW, gridH, label, color]
+  {x:3,  y:3,  w:15, h:11, label:'Old Mall',       color:'#3a2e1a', door:{x:10,y:14}},
+  {x:23, y:3,  w:15, h:11, label:'Ruins A',         color:'#2a2a2a', door:{x:30,y:14}, ruin:true},
+  {x:44, y:3,  w:14, h:11, label:'Collapsed Tower', color:'#252525', door:{x:50,y:14}, ruin:true},
+  {x:63, y:3,  w:16, h:11, label:'City Hall',       color:'#2e2518', door:{x:70,y:14}},
+  {x:83, y:3,  w:15, h:11, label:'Ruins B',         color:'#222222', door:{x:90,y:14}, ruin:true},
+  {x:103,y:3,  w:13, h:11, label:'Old Factory',     color:'#252520', door:{x:109,y:14}, ruin:true},
+
+  {x:3,  y:19, w:15, h:13, label:'Slum District',   color:'#22252a', door:{x:10,y:32}},
+  {x:23, y:19, w:15, h:13, label:'Abandoned Market',color:'#252020', door:{x:30,y:32}, ruin:true},
+  {x:44, y:19, w:14, h:13, label:'Police HQ',       color:'#20252a', door:{x:50,y:32}},
+  {x:63, y:19, w:16, h:13, label:'Shadow Hotel',    color:'#1a1a2a', door:{x:70,y:32}},
+  {x:83, y:19, w:15, h:13, label:'Warehouse Row',   color:'#252520', door:{x:90,y:32}},
+  {x:103,y:19, w:13, h:13, label:'Dark Tower',      color:'#1a1a1a', door:{x:109,y:32}},
+
+  {x:3,  y:37, w:15, h:13, label:'Docks East',      color:'#0d1a2a', door:{x:10,y:50}},
+  {x:23, y:37, w:15, h:13, label:'Shipyard Ruins',  color:'#202020', door:{x:30,y:50}, ruin:true},
+  {x:44, y:37, w:14, h:13, label:'Underground Lab', color:'#1a1a2a', door:{x:50,y:50}},
+  {x:63, y:37, w:16, h:13, label:'Black Market',    color:'#2a1a0d', door:{x:70,y:50}},
+  {x:83, y:37, w:15, h:13, label:'Sewer Entrance',  color:'#1e1e1e', door:{x:90,y:50}},
+  {x:103,y:37, w:13, h:13, label:'Docks West',      color:'#0d1a2a', door:{x:109,y:50}},
+
+  {x:3,  y:55, w:20, h:11, label:'South Gate',      color:'#2e2518', door:{x:12,y:66}},
+  {x:44, y:55, w:20, h:11, label:'Escape Route',    color:'#252525', door:{x:53,y:66}, ruin:true},
+  {x:83, y:55, w:25, h:11, label:'Train Yard',      color:'#202018', door:{x:94,y:66}, ruin:true},
+];
+
+// Paint buildings into grid
+buildings.forEach(b => {
+  for (let y = b.y; y < b.y + b.h; y++) {
+    for (let x = b.x; x < b.x + b.w; x++) {
+      if (y >= 0 && y < WORLD_H && x >= 0 && x < WORLD_W)
+        grid[y][x] = T_WALL;
+    }
+  }
+  // Door
+  if (b.door) grid[b.door.y][b.door.x] = T_DOOR;
+});
+
+// Helipad at Old Mall
+const helipad = {x: 8, y: 6};
+
+// ── PLAYER ─────────────────────────────────────────────────────
+const player = {
+  x: 61 * TILE, y: 53 * TILE,
+  w: 14, h: 14,
+  speed: 3,
+  color: '#f5a623',
+};
+
+// ── CAMERA ─────────────────────────────────────────────────────
+let camX = 0, camY = 0;
+
+// ── INPUT ──────────────────────────────────────────────────────
+const keys = {};
+window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+window.addEventListener('keyup',   e => keys[e.key.toLowerCase()] = false);
+
+// ── NPCS ───────────────────────────────────────────────────────
+const npcs = [
+  {x:42*TILE, y:18*TILE, color:'#aaa', dir:1, timer:0},
+  {x:65*TILE, y:36*TILE, color:'#888', dir:-1, timer:60},
+  {x:25*TILE, y:54*TILE, color:'#aab', dir:1, timer:30},
+  {x:85*TILE, y:20*TILE, color:'#999', dir:-1, timer:90},
+];
+
+// ── DECORATION ─────────────────────────────────────────────────
+// Lamp posts at road intersections
+const lamps = [];
+const lampCrossX = [20,40,60,80,100];
+const lampCrossY = [16,34,52,70];
+lampCrossX.forEach(lx => lampCrossY.forEach(ly => {
+  lamps.push({x: lx*TILE+TILE/2, y: ly*TILE+TILE/2});
+}));
+
+// ── TOAST ──────────────────────────────────────────────────────
+function showToast(msg) {
+  const el = document.getElementById('pack-toast');
+  el.textContent = msg;
+  el.style.opacity = '1';
+  setTimeout(() => el.style.opacity = '0', 2500);
+}
+
+function showBanner(msg) {
+  const el = document.getElementById('location-banner');
+  el.textContent = msg;
+  el.style.opacity = '1';
+  setTimeout(() => el.style.opacity = '0', 2000);
+}
+
+// ── COLLISION ──────────────────────────────────────────────────
+function tileAt(px, py) {
+  const tx = Math.floor(px / TILE);
+  const ty = Math.floor(py / TILE);
+  if (tx < 0 || ty < 0 || tx >= WORLD_W || ty >= WORLD_H) return T_WALL;
+  return grid[ty][tx];
+}
+
+function canMove(px, py) {
+  const margin = 2;
+  const t = player.w / 2 - margin;
+  const corners = [
+    [px - t, py - t], [px + t, py - t],
+    [px - t, py + t], [px + t, py + t],
+  ];
+  return corners.every(([cx, cy]) => {
+    const tile = tileAt(cx, cy);
+    return tile !== T_WALL && tile !== T_WATER;
+  });
+}
+
+// ── NEAR BUILDING ──────────────────────────────────────────────
+let nearBuilding = null;
+function checkNearBuilding() {
+  const px = Math.floor(player.x / TILE);
+  const py = Math.floor(player.y / TILE);
+  for (const b of buildings) {
+    if (px >= b.x - 1 && px <= b.x + b.w &&
+        py >= b.y - 1 && py <= b.y + b.h) {
+      if (nearBuilding !== b.label) {
+        nearBuilding = b.label;
+        document.getElementById('location-name').textContent = '📍 ' + b.label;
+        showBanner(b.label);
+      }
+      return;
+    }
+  }
+  nearBuilding = null;
+  document.getElementById('location-name').textContent = 'Outside — City Streets';
+}
+
+// ── NPC UPDATE ─────────────────────────────────────────────────
+function updateNPCs() {
+  npcs.forEach(n => {
+    n.timer++;
+    if (n.timer % 120 === 0) n.dir *= -1;
+    const nx = n.x + n.dir * 1.2;
+    const tileType = tileAt(nx, n.y);
+    if (tileType === T_ROAD || tileType === T_SIDE || tileType === T_GRAVEL) {
+      n.x = nx;
+    } else {
+      n.dir *= -1;
+    }
+  });
+}
+
+// ── DRAW ───────────────────────────────────────────────────────
+let animFrame = 0;
+
+function drawWorld() {
+  // Only draw visible tiles
+  const startX = Math.max(0, Math.floor(camX / TILE) - 1);
+  const startY = Math.max(0, Math.floor(camY / TILE) - 1);
+  const endX   = Math.min(WORLD_W, startX + Math.ceil(canvas.width / TILE) + 2);
+  const endY   = Math.min(WORLD_H, startY + Math.ceil(canvas.height / TILE) + 2);
+
+  for (let ty = startY; ty < endY; ty++) {
+    for (let tx = startX; tx < endX; tx++) {
+      const t = grid[ty][tx];
+      const sx = tx * TILE - camX;
+      const sy = ty * TILE - camY;
+
+      ctx.fillStyle = COLORS[t];
+      ctx.fillRect(sx, sy, TILE, TILE);
+
+      // Road markings
+      if (t === T_ROAD) {
+        ctx.fillStyle = '#2a2a2a';
+        if (roadRows.includes(ty) && (tx % 6 === 0)) {
+          ctx.fillRect(sx + TILE/2 - 1, sy + 4, 2, TILE - 8);
+        }
+        if (roadCols.includes(tx) && (ty % 6 === 0)) {
+          ctx.fillRect(sx + 4, sy + TILE/2 - 1, TILE - 8, 2);
+        }
+      }
+
+      // Water shimmer
+      if (t === T_WATER) {
+        ctx.fillStyle = `rgba(30,80,120,${0.2 + 0.1 * Math.sin(animFrame * 0.05 + tx * 0.3)})`;
+        ctx.fillRect(sx, sy, TILE, TILE);
+      }
+
+      // Door highlight
+      if (t === T_DOOR) {
+        ctx.fillStyle = '#c8a020';
+        ctx.fillRect(sx + 4, sy + 2, TILE - 8, TILE - 4);
+        ctx.fillStyle = '#8b6914';
+        ctx.fillRect(sx + 6, sy + 4, TILE - 12, TILE - 8);
+      }
+    }
+  }
+
+  // Draw buildings (labels + outlines)
+  buildings.forEach(b => {
+    const sx = b.x * TILE - camX;
+    const sy = b.y * TILE - camY;
+    const sw = b.w * TILE;
+    const sh = b.h * TILE;
+
+    if (sx + sw < 0 || sx > canvas.width || sy + sh < 0 || sy > canvas.height) return;
+
+    // Building face
+    ctx.fillStyle = b.color;
+    ctx.fillRect(sx, sy, sw, sh);
+
+    // Ruin X marks
+    if (b.ruin) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(sx + 8, sy + 8); ctx.lineTo(sx + sw - 8, sy + sh - 8);
+      ctx.moveTo(sx + sw - 8, sy + 8); ctx.lineTo(sx + 8, sy + sh - 8);
+      ctx.stroke();
+    }
+
+    // Landmark gold border
+    if (b.label === 'Old Mall' || b.label === 'City Hall' || b.label === 'Dark Tower' || b.label === 'South Gate') {
+      ctx.strokeStyle = '#c6a84b44';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(sx + 1, sy + 1, sw - 2, sh - 2);
+    }
+
+    // Windows (small dots)
+    ctx.fillStyle = 'rgba(255,220,100,0.12)';
+    for (let wy = sy + 6; wy < sy + sh - 10; wy += 10) {
+      for (let wx = sx + 6; wx < sx + sw - 6; wx += 10) {
+        if (Math.random() > 0.6) ctx.fillRect(wx, wy, 4, 3);
+      }
+    }
+
+    // Label
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = `bold ${Math.min(11, sw/b.label.length * 1.4)}px Nunito, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText(b.label, sx + sw / 2, sy + sh / 2 + 4);
+  });
+
+  // Helipad
+  const hsx = helipad.x * TILE - camX + TILE/2;
+  const hsy = helipad.y * TILE - camY + TILE/2;
+  ctx.strokeStyle = '#e53e3e';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(hsx, hsy, 18, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = 'rgba(229,62,62,0.15)';
+  ctx.beginPath(); ctx.arc(hsx, hsy, 18, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#e53e3e';
+  ctx.font = 'bold 14px Nunito';
+  ctx.textAlign = 'center';
+  ctx.fillText('H', hsx, hsy + 5);
+
+  // Lamp posts
+  lamps.forEach(l => {
+    const lx = l.x - camX, ly = l.y - camY;
+    if (lx < -20 || lx > canvas.width + 20 || ly < -20 || ly > canvas.height + 20) return;
+    ctx.fillStyle = '#555';
+    ctx.fillRect(lx - 2, ly - 12, 4, 12);
+    ctx.fillStyle = `rgba(255,220,100,${0.3 + 0.1 * Math.sin(animFrame * 0.03 + l.x)})`;
+    ctx.beginPath(); ctx.arc(lx, ly - 14, 5, 0, Math.PI * 2); ctx.fill();
+    // Glow
+    const grd = ctx.createRadialGradient(lx, ly - 14, 0, lx, ly - 14, 40);
+    grd.addColorStop(0, 'rgba(255,220,100,0.08)');
+    grd.addColorStop(1, 'transparent');
+    ctx.fillStyle = grd;
+    ctx.beginPath(); ctx.arc(lx, ly - 14, 40, 0, Math.PI * 2); ctx.fill();
+  });
+}
+
+function drawNPCs() {
+  npcs.forEach(n => {
+    const sx = n.x - camX, sy = n.y - camY;
+    ctx.fillStyle = n.color;
+    ctx.beginPath(); ctx.arc(sx, sy, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#222';
+    ctx.beginPath(); ctx.arc(sx, sy - 8, 4, 0, Math.PI * 2); ctx.fill();
+  });
+}
+
+function drawPlayer() {
+  const sx = player.x - camX;
+  const sy = player.y - camY;
+
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.beginPath(); ctx.ellipse(sx, sy + 6, 8, 4, 0, 0, Math.PI * 2); ctx.fill();
+
+  // Body
+  ctx.fillStyle = player.color;
+  ctx.beginPath(); ctx.arc(sx, sy, 7, 0, Math.PI * 2); ctx.fill();
+
+  // Head
+  ctx.fillStyle = '#f0d0a0';
+  ctx.beginPath(); ctx.arc(sx, sy - 9, 5, 0, Math.PI * 2); ctx.fill();
+
+  // Direction indicator
+  ctx.fillStyle = '#f5a623';
+  ctx.beginPath(); ctx.arc(sx, sy - 3, 2, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawMinimap() {
+  const mw = 110, mh = 80;
+  const scaleX = mw / PX_W, scaleY = mh / PX_H;
+
+  mctx.fillStyle = '#080808';
+  mctx.fillRect(0, 0, mw, mh);
+
+  // Roads
+  mctx.fillStyle = '#222';
+  roadRows.forEach(r => mctx.fillRect(0, r * TILE * scaleY, mw, 2 * TILE * scaleY));
+  roadCols.forEach(c => mctx.fillRect(c * TILE * scaleX, 0, 2 * TILE * scaleX, mh));
+
+  // Water
+  mctx.fillStyle = '#0a1a2a';
+  mctx.fillRect(0, 80 * TILE * scaleY, mw, mh);
+
+  // Buildings
+  buildings.forEach(b => {
+    mctx.fillStyle = b.color;
+    mctx.fillRect(b.x * TILE * scaleX, b.y * TILE * scaleY, b.w * TILE * scaleX, b.h * TILE * scaleY);
+  });
+
+  // Player dot
+  mctx.fillStyle = '#f5a623';
+  mctx.beginPath();
+  mctx.arc(player.x * scaleX, player.y * scaleY, 3, 0, Math.PI * 2);
+  mctx.fill();
+
+  // Viewport rect
+  mctx.strokeStyle = 'rgba(255,255,255,0.3)';
+  mctx.lineWidth = 1;
+  mctx.strokeRect(
+    camX * scaleX, camY * scaleY,
+    canvas.width * scaleX, canvas.height * scaleY
+  );
+}
+
+// ── GAME LOOP ──────────────────────────────────────────────────
+function gameLoop() {
+  animFrame++;
+
+  // Move player
+  let dx = 0, dy = 0;
+  if (keys['w'] || keys['arrowup'])    dy = -player.speed;
+  if (keys['s'] || keys['arrowdown'])  dy =  player.speed;
+  if (keys['a'] || keys['arrowleft'])  dx = -player.speed;
+  if (keys['d'] || keys['arrowright']) dx =  player.speed;
+
+  // Diagonal normalization
+  if (dx !== 0 && dy !== 0) { dx *= 0.707; dy *= 0.707; }
+
+  if (dx !== 0) {
+    const nx = player.x + dx;
+    if (canMove(nx, player.y)) player.x = nx;
+  }
+  if (dy !== 0) {
+    const ny = player.y + dy;
+    if (canMove(player.x, ny)) player.y = ny;
+  }
+
+  // Clamp to world
+  player.x = Math.max(TILE, Math.min(PX_W - TILE, player.x));
+  player.y = Math.max(TILE, Math.min(PX_H - TILE, player.y));
+
+  // Camera follows player
+  camX = player.x - canvas.width / 2;
+  camY = player.y - canvas.height / 2;
+  camX = Math.max(0, Math.min(PX_W - canvas.width, camX));
+  camY = Math.max(0, Math.min(PX_H - canvas.height, camY));
+
+  updateNPCs();
+  checkNearBuilding();
+
+  // Draw
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawWorld();
+  drawNPCs();
+  drawPlayer();
+  drawMinimap();
+
+  requestAnimationFrame(gameLoop);
+}
+
+// ── RESIZE ─────────────────────────────────────────────────────
+window.addEventListener('resize', () => {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+});
+
+// Start!
+showBanner('City of Shadows');
+showToast('🎮 Use WASD to move around the city!');
+gameLoop();
+</script>
+</body>
+</html>
