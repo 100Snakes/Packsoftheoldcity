@@ -71,9 +71,9 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  let file = 'index.html';
-  if (req.url === '/map' || req.url === '/map.html') file = 'map.html';
-  if (req.url === '/game' || req.url === '/game.html') file = 'game.html';
+  let file = 'city-of-shadows-login.html';
+  if (req.url === '/map' || req.url === '/map.html') file = 'city-of-shadows-map.html';
+  if (req.url === '/game' || req.url === '/game.html') file = 'city-of-shadows-game.html';
   const filePath = path.join(__dirname, file);
   fs.readFile(filePath, (err, data) => {
     if (err) { res.writeHead(404); res.end('Not found'); return; }
