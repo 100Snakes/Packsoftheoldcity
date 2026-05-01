@@ -375,15 +375,31 @@
       setTimeout(() => r.remove(), 600);
     }
 
-    function handleLogin(e) {
+    async function handleLogin(e) {
       rippleEffect(e.currentTarget, e);
       const user = document.getElementById('login-user').value.trim();
       const pass = document.getElementById('login-pass').value;
       if (!user || !pass) return showMsg('⚠️ Please fill in all fields.', 'error');
-      showMsg('✅ Welcome back, ' + user + '! Entering the shadows...', 'success');
+      showMsg('⏳ Logging in...', 'success');
+      try {
+        const res = await fetch('/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: user, password: pass })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showMsg('✅ ' + data.message, 'success');
+          setTimeout(() => window.location.href = '/map', 1500);
+        } else {
+          showMsg('⚠️ ' + data.error, 'error');
+        }
+      } catch {
+        showMsg('⚠️ Could not connect to server.', 'error');
+      }
     }
 
-    function handleSignup(e) {
+    async function handleSignup(e) {
       rippleEffect(e.currentTarget, e);
       const user    = document.getElementById('signup-user').value.trim();
       const email   = document.getElementById('signup-email').value.trim();
@@ -392,7 +408,23 @@
       if (!user || !email || !pass || !confirm) return showMsg('⚠️ Please fill in all fields.', 'error');
       if (pass !== confirm) return showMsg('⚠️ Passwords do not match!', 'error');
       if (pass.length < 6)  return showMsg('⚠️ Password must be at least 6 characters.', 'error');
-      showMsg('🎉 Account created! Welcome to City of Shadows, ' + user + '!', 'success');
+      showMsg('⏳ Creating account...', 'success');
+      try {
+        const res = await fetch('/signup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: user, email, password: pass })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showMsg('🎉 ' + data.message, 'success');
+          setTimeout(() => window.location.href = '/map', 1500);
+        } else {
+          showMsg('⚠️ ' + data.error, 'error');
+        }
+      } catch {
+        showMsg('⚠️ Could not connect to server.', 'error');
+      }
     }
 
     // Enter key support
